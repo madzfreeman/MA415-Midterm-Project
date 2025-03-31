@@ -1,0 +1,428 @@
+---
+title: "415Midterm- Strawberry Cleaning"
+format: pdf
+editor: visual
+---
+
+## Cleaning the Strawberry Data Set
+
+We will be cleaning and analyzing the USDA's NASS data on strawberry production, which gives insight into the agricultural industry. Prior to cleaning the Strawberry data set, it is important to understand the structure of the data and the data itself. Because of this, I used the str() and head() functions to get more information on the data. After this, removing any columns with missing values (NA) was the next step, so I individually deleted any columns with missing values before checking if the columns were deleted from the data set. Additionally I removed the State.ANSI column since it is just the USDA's NASS code assigned to each state which are already listed.
+
+```{r}
+#| echo: false
+#| label: Loading, exploring and beginning stages of cleaning data
+
+library(dplyr)
+library(ggplot2)
+
+strawb_data <- read.csv("strawb_mar6.csv")
+str(strawb_data)
+head(strawb_data)
+names(strawb_data)
+
+col_remove <- c("Week.Ending", "Ag.District", "Ag.District.Code", 
+                       "County", "County.ANSI", "Zip.Code", "Region", "Watershed")
+clean_data <- strawb_data
+
+print(names(clean_data))
+
+clean_data$Week.Ending <- NULL
+clean_data$Ag.District <- NULL
+clean_data$Ag.District.Code <- NULL
+clean_data$County <- NULL
+clean_data$County.ANSI <- NULL
+clean_data$Zip.Code <- NULL
+clean_data$Region <- NULL
+clean_data$Watershed <- NULL
+clean_data$watershed_code <- NULL
+clean_data$State.ANSI <- NULL
+
+print(names(clean_data))
+View(clean_data)
+
+```
+
+The next step in my data cleaning is checking if any remaining columns have missing values. To do this, I ran a summary of the missing values per column. Next I used a for loop with the unique() function to check if the remaining columns had the same values in every row, or if there are diverse values. This code also deleted any columns with 1 value or NA values (as a way to double check my previous cleaning work), which disposed of the Geo.Level column since it only had 1 value. To continue cleaning the USDA NASS Strawberry data, I removed any data entries (rows) where the State was not Florida or California and used rbind() to stack the data sets on top of each other, further organizing the data. Eliminating the rows of data on strawberries from Connecticut, Maine, Massachusetts, New Hampshire, New York, Rhode Island and Vermont, allows us to strictly analyze the data from the two states producing the most strawberries.
+
+```{r}
+#| echo: false
+#| label: Continue cleaning data
+print(colSums(is.na(clean_data)))
+
+for(col in names(clean_data)) {
+  if(length(unique(clean_data[[col]][!is.na(clean_data[[col]])])) <= 1) {
+    clean_data[[col]] <- NULL
+  }
+}
+
+print(unique(clean_data$State))
+california_rows <- clean_data[clean_data$State == "CALIFORNIA", ]
+florida_rows <- clean_data[clean_data$State == "FLORIDA", ]
+clean_data <- rbind(california_rows, florida_rows)
+print(unique(clean_data$State))
+```
+Next, I began restructuring the columns to get rid of words that are included in other parts of the data set. Getting rid of the repetitive phrases will help make the data less cluttered and easier to analyze later. I then created a new column called Measure and strategically placed it between Data.Item and Domain to further organize the values that were originally in the Data.Item column better. I then created a for loop that had a similar structure to what I was taught in Python that deleted the word MEASURED and moved any words written after it (if any) to the new Measures column.
+
+```{r}
+#| echo: false
+#| label: Cleaning and splitting columns
+clean_data$Data.Item <- ifelse(
+  startsWith(clean_data$Data.Item, "INCOME, NET CASH FARM, OF"),
+  sub("^INCOME, NET CASH FARM, OF ", "", clean_data$Data.Item),  
+  clean_data$Data.Item
+)
+
+clean_data$Data.Item <- gsub("^STRAWBERRIES", "", clean_data$Data.Item)
+clean_data$Data.Item <- trimws(clean_data$Data.Item)
+clean_data$Data.Item <- gsub(",", "", clean_data$Data.Item)
+
+unique_values <- unique(clean_data$Data.Item)
+print(unique_values)
+
+clean_data <- cbind(
+  clean_data[, 1:6],         
+  Measure = NA,               
+  clean_data[, 7:ncol(clean_data)]  
+)
+
+
+for (i in 1:nrow(clean_data)) {
+  current_text <- clean_data$Data.Item[i]
+  if ("MEASURED" %in% strsplit(current_text, " ")[[1]]) {
+    split_text <- strsplit(current_text, "MEASURED")[[1]]
+    clean_data$Data.Item[i] <- trimws(split_text[1])
+    
+    if (length(split_text) > 1) {
+      clean_data$Measure[i] <- trimws(split_text[2])
+    }
+  }
+}
+
+```
+
+After splitting the columns, there were some NA values in the Measure categories which I then replaced as NOT SPECIFIED. In addition, there were some extraneous symbols and spaces that needed to get removed, so gsub() and trimws() were used to remove such punctuation and spaces in Domain.Category and Data.Item.
+
+```{r}
+#| echo: false
+#| label: Continue cleaning data after splitting columns
+clean_data$Measure[is.na(clean_data$Measure)] <- "NOT SPECIFIED"
+
+clean_data$Domain.Category <- gsub(".*:", "", clean_data$Domain.Category)
+clean_data$Domain.Category <- trimws(clean_data$Domain.Category)
+clean_data$Domain.Category <- gsub("[()]", "", clean_data$Domain.Category)
+
+clean_data$Data.Item <- gsub("^[ -]+", "", clean_data$Data.Item)
+clean_data$Data.Item <- trimws(clean_data$Data.Item)
+
+```
+
+In order to analyze the differences between strawberries that are organic, conventional and sold for processing, I created a new column that differentiates the type of strawberries.
+```{r}
+#| echo: false
+#| label: Organizing Types of Strawberry Production
+clean_data <- clean_data %>%
+  mutate(
+    Production.Type = case_when(
+      Commodity != "STRAWBERRIES" ~ "NOT APPLICABLE", 
+      grepl("ORGANIC", Data.Item) ~ "Organic",
+      grepl("PROCESSING", Data.Item) ~ "Processing",
+      TRUE ~ "Conventional"  
+    )
+  )
+
+strawberry_counts <- clean_data %>%
+  filter(Commodity == "STRAWBERRIES") %>%
+  count(Production.Type)
+print(strawberry_counts)
+
+```
+
+I then cleaned the Value data, changing the values to numeric and removing any punctuation before creating the columns Value.clean and Value.numeric and removing the original Value column.
+```{r}
+#| echo: false
+#| label: Changing Value to numeric and cleaning continued
+non_numeric <- unique(clean_data$Value[is.na(as.numeric(clean_data$Value)) & !is.na(clean_data$Value)])
+print(non_numeric)
+
+clean_data$Value.clean <- gsub(",|\\$|%", "", clean_data$Value)
+clean_data$Value.numeric <- as.numeric(clean_data$Value.clean)
+
+clean_data$Value <- NULL
+
+```
+
+After cleaning the data set, the data was broken up into four data sets: California Survey data (CA_survey), California Census data (CA_census), Florida Survey data (FL_survey) and Florida Census data (FL_census). For additional cleaning, State and Program columns were removed from the four split data sets. In addition, census data and survey data were separated into two different data sets and all data where the Commodity column said STRAWBERRIES were also transferred to a new data set for easier analysis later.
+```{r}
+#| echo: false
+#|label: Data set split/assignment (CENSUS/SURVEY & CALIFORNIA/FLORIDA)
+
+CA_survey <- clean_data[clean_data$State == "CALIFORNIA" & clean_data$Program == "SURVEY", ]
+print(paste("Number of CA survey rows:", nrow(CA_survey)))
+View(CA_survey)
+
+CA_census <- clean_data[clean_data$State == "CALIFORNIA" & clean_data$Program == "CENSUS", ]
+print(paste("Number of CA census rows:", nrow(CA_census)))
+View(CA_census)
+
+FL_survey <- clean_data[clean_data$State == "FLORIDA" & clean_data$Program == "SURVEY", ]
+print(paste("Number of FL survey rows:", nrow(FL_survey)))
+View(FL_survey)
+
+FL_census <- clean_data[clean_data$State == "FLORIDA" & clean_data$Program == "CENSUS", ]
+print(paste("Number of FL census rows:", nrow(FL_census)))
+View(FL_census)
+
+CA_survey$State <- CA_survey$Program <- NULL
+CA_census$State <- CA_census$Program <- NULL
+FL_survey$State <- FL_survey$Program <- NULL
+FL_census$State <- FL_census$Program <- NULL
+
+strawberry_data <- clean_data[clean_data$Commodity == "STRAWBERRIES", ]
+View(strawberry_data)
+
+census_data <- clean_data[clean_data$Program == "CENSUS", ]
+survey_data <- clean_data[clean_data$Program == "SURVEY", ]
+View(census_data)
+View(survey_data)
+```
+
+## **Analyzing the Strawberry Data**
+
+Now that the USDA NASS Strawberry Data has been cleaned, there are 2,033 entries remaining with 11 columns. This data set will be much more straightforward to look at when the analysis of the data begins. To begin analyzing the data, I wanted to look at some key differences between California and Florida's strawberry production. To do this I created summary count and metrics tables before forming a bar plot to compare the acreage between the two states. I really enjoyed using knitr:: to create report worthy tables with easily readable information.
+```{r}
+#| echo: false
+#|label: Comparing California and Florida's Strawberry Production
+#|
+library(tidyverse)
+library(scales)
+
+clean_data %>%
+  filter(Commodity == "STRAWBERRIES",
+         State %in% c("CALIFORNIA", "FLORIDA")) %>%
+  group_by(State) %>% 
+  summarise(
+    `Avg Value` = mean(Value.numeric, na.rm = TRUE),
+    `Min Value` = min(Value.numeric, na.rm = TRUE),
+    `Max Value` = max(Value.numeric, na.rm = TRUE),
+    `Total Records` = n(),
+    .groups = "drop"
+  ) %>% 
+  knitr::kable(caption = "Strawberry Production Summary Statistics")
+
+clean_data %>%
+  filter(Commodity == "STRAWBERRIES",
+         State %in% c("CALIFORNIA", "FLORIDA"),
+         Data.Item %in% c("ORGANIC - ACRES HARVESTED", "ORGANIC - SALES")) %>% 
+  group_by(State, Data.Item) %>%
+  summarise(Value = mean(Value.numeric, na.rm = TRUE), .groups = "drop") %>%
+  pivot_wider(names_from = Data.Item, values_from = Value) %>% 
+  knitr::kable(caption = "Key Metrics Comparison", format.args = list(big.mark = ","))
+
+clean_data %>%
+  filter(Commodity == "STRAWBERRIES",
+         State %in% c("CALIFORNIA", "FLORIDA"),
+         Data.Item == "ORGANIC - ACRES HARVESTED") %>%
+  ggplot(aes(x = State, y = Value.numeric)) +
+  geom_col(fill = c("orange", "blue"), width = 0.6) +  
+  geom_text(aes(label = scales::comma(Value.numeric)), 
+            vjust = -0.5, 
+            size = 3.5) +  
+  labs(title = "Organic Strawberry Acreage",
+       y = "Acres Harvested",
+       caption = "Source: USDA NASS Data") +
+  theme_minimal()
+```
+In order to determine which 3 conventionally used chemicals I should take a closer look at, I filtered out the strawberries so only the ones listed as conventional and used in both Florida and California would show up. 
+```{r}
+#| echo: false
+#|label: Finding Chemicals used in FL and CA
+
+library(dplyr)
+common_conventional <- clean_data %>%
+  filter(Commodity == "STRAWBERRIES",
+         State %in% c("FLORIDA", "CALIFORNIA"),
+         Production.Type == "Conventional") %>%  
+  group_by(Domain.Category) %>%
+  summarize(in_both = n_distinct(State) > 1) %>%
+  filter(in_both) %>%
+  pull(Domain.Category)
+
+print("Conventional Domain.Category values in both states:")
+print(common_conventional)
+```
+
+The three chemicals that I chose to isolate were Thiram, Cyprodinil, and Captan. I defined the uses of the three fungicides with their toxicity levels before getting the usage data in California and Florida. I them inputted that usage data into a comparison table. I struggled greatly with this code as cleaning the chemicals and finding interesting data was difficult to do when using coding techniques that were new to me. I then created visualizations (dot plot and bar plot) that are visually appealing while still exhibiting the data clearly. This aspect of the data analysis was fun for me as I got to try different ways to plot and got to customize them. The dot plot compares the usage of the three chemicals between states while the bar plot exhibits the difference in usage between states.
+```{r}
+#| echo: false
+#|label: Visualizations and Data on Chemical Use
+
+library(dplyr)
+library(ggplot2)
+
+chemical_info <- data.frame(
+  Chemical_Name = c("CAPTAN", "THIRAM", "CYPRODINIL"),
+  Chemical_Code = c("81301", "79801", "288202"),
+  Use = c("Fungicide for fruit rot", 
+          "Fungicide for seed treatment", 
+          "Fungicide for gray mold"),
+  Toxicity = c("Moderate", "High", "Low")
+)
+
+chem_usage <- clean_data %>%
+  filter(Commodity == "STRAWBERRIES",
+         State %in% c("FLORIDA", "CALIFORNIA"),
+         Production.Type == "Conventional",
+         Domain.Category %in% paste0(chemical_info$Chemical_Name, " = ", chemical_info$Chemical_Code)) %>%
+  mutate(Chemical = gsub(" = \\d+", "", Domain.Category)) %>%
+  group_by(State, Chemical) %>%
+  summarize(Amount_Used = mean(Value.numeric, na.rm = TRUE), .groups = "drop")
+
+usage_comparison <- chem_usage %>%
+  pivot_wider(names_from = State, values_from = Amount_Used) %>%
+  left_join(chemical_info, by = c("Chemical" = "Chemical_Name")) %>%
+  mutate(Difference = CALIFORNIA - FLORIDA) %>%
+  select(Chemical, Use, Toxicity, FLORIDA, CALIFORNIA, Difference)
+print("Chemical Comparison for Conventional Strawberries:")
+print(usage_comparison)
+
+ggplot(usage_comparison, aes(y = Chemical)) +
+  geom_segment(aes(x = FLORIDA, xend = CALIFORNIA, yend = Chemical), 
+               color = "gray", linewidth = 1.5) +
+  geom_point(aes(x = FLORIDA, color = "Florida"), size = 4) +
+  geom_point(aes(x = CALIFORNIA, color = "California"), size = 4) +
+  scale_color_manual(values = c("Florida" = "magenta", "California" = "lightblue")) +
+  labs(title = "Chemical Usage Comparison",
+       subtitle = "Florida vs California Conventional Strawberries",
+       x = "Amount Used (lbs/acre)",
+       y = "Chemical",
+       color = "State") +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.major.y = element_blank())
+
+ggplot(usage_comparison, aes(x = Chemical, y = Difference, fill = Difference > 0)) +
+  geom_col() +
+  scale_fill_manual(values = c("TRUE" = "darkgreen", "FALSE" = "red")) +
+  labs(title = "Chemical Usage Differences",
+       subtitle = "California vs Florida",
+       y = "Difference (CALIFORNIA - FLORIDA)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+Here is my analysis of the different production types (organic and conventional). First I began by creating a table for production comparison, then sales comparison and then processing comparison. After this I created bar plots to exhibit the production comparison and processing comparison. I tried to make the bar graphs as clear as possible by including keys, labels and bright colors.
+```{r}
+#| echo: false
+#|label: Comparison of Production Types
+
+library(dplyr)
+
+strawberry_data %>% 
+  count(`Production.Type`, Data.Item) %>% 
+  View()
+
+strawberry_data %>%
+  filter(grepl("PROD|ACRES|HARVEST", Data.Item, ignore.case = TRUE)) %>%
+  group_by(`Production.Type`) %>%
+  summarize(Production = sum(Value.numeric, na.rm = TRUE))
+
+strawberry_data %>%
+  filter(grepl("SALES", Data.Item, ignore.case = TRUE)) %>%
+  group_by(`Production.Type`) %>%
+  summarize(Sales = sum(Value.numeric, na.rm = TRUE))
+
+strawberry_data %>%
+  filter(grepl("PROCESS", Data.Item, ignore.case = TRUE)) %>%
+  group_by(`Production.Type`) %>%
+  summarize(Processing = sum(Value.numeric, na.rm = TRUE))
+
+create_plot <- function(data, y_col, title) {
+  ggplot(data, aes(x = `Production.Type`, y = .data[[y_col]], fill = `Production.Type`)) +
+    geom_col() +
+    labs(title = title, x = "Production Type", y = y_col) +
+    scale_fill_manual(values = c("Conventional" = "orange", "Organic" = "pink")) +
+    theme_minimal()
+}
+create_plot(prod_summary, "Total_Production", "Total Production Comparison")
+create_plot(processing_summary, "Processing_Amount", "Processing Amount Comparison")
+```
+
+For the second question of the assignment, I created visualizations that show price trends by production type and production volume trends by state and production type. In addition, I also created tables to show the direct comparisons of the state and production type data, something I was introduced to briefly in my past internship. The most difficult part of this project was modifying the code for the visualizations to make them look put together as well as figuring out which functions to choose to make the cleaned data set be used to its full potential.
+```{r}
+#| echo: false
+#|label: Price, Volume, Yearly Trends by Production Type and State
+
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+
+comparison_data <- strawberry_data %>%
+  filter(State %in% c("CALIFORNIA", "FLORIDA"),
+         `Production.Type` %in% c("Organic", "Conventional")) %>%
+  mutate(
+    Year = as.numeric(Year),
+    Price = ifelse(grepl("PRICE", Data.Item), Value.numeric, NA),
+    Cost = ifelse(grepl("COST", Data.Item), Value.numeric, NA),
+    Volume = ifelse(grepl("PRODUCTION|HARVESTED", Data.Item), Value.numeric, NA)
+  ) %>%
+  group_by(State, `Production.Type`, Year) %>%
+  summarize(
+    Avg_Price = mean(Price, na.rm = TRUE),
+    Avg_Cost = mean(Cost, na.rm = TRUE),
+    Total_Volume = sum(Volume, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+ggplot(comparison_data, aes(x = Year, y = Avg_Price, color = State)) +
+  geom_line(size = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~`Production.Type`, scales = "free_y") +
+  labs(title = "Strawberry Price Trends by Production Type",
+       y = "Average Price ($/unit)",
+       color = "State") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+ggplot(comparison_data, aes(x = Year, y = Total_Volume, 
+                           color = interaction(State, Production.Type),
+                           linetype = Production.Type)) +
+  geom_line(size = 1) +
+  geom_point(size = 3) +
+  scale_color_manual(
+    values = c("darkblue", "lightblue", "darkgreen", "lightgreen"),  
+    labels = c("CA-Conventional", "CA-Organic", "FL-Conventional", "FL-Organic")
+  ) +
+  scale_linetype_manual(values = c("solid", "dashed")) +
+  labs(
+    title = "Strawberry Production Volume Trends",
+    subtitle = "Comparing California and Florida (Organic vs Conventional)",
+    y = "Total Volume (units)",
+    x = "Year",
+    color = "State & Production Type",
+    linetype = "Production Type"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(legend.position = "bottom",
+        legend.box = "vertical")
+
+state_prod_comparisons <- comparison_data %>%
+  group_by(Year, `Production.Type`) %>%
+  summarize(
+    Price_Ratio = Avg_Price[State == "CALIFORNIA"] / Avg_Price[State == "FLORIDA"],
+    Volume_Ratio = Total_Volume[State == "CALIFORNIA"] / Total_Volume[State == "FLORIDA"],
+    .groups = "drop"
+  )
+
+print("Annual CA/FL Ratios by Production Type:")
+state_prod_comparisons
+
+state_diffs <- comparison_data %>%
+  pivot_wider(names_from = State, values_from = c(Avg_Price, Total_Volume)) %>%
+  mutate(
+    Price_Diff = Avg_Price_CALIFORNIA - Avg_Price_FLORIDA,
+    Volume_Diff = Total_Volume_CALIFORNIA - Total_Volume_FLORIDA
+  )
+
+print("Annual Differences (CA - FL):")
+state_diffs
+```
+
+
