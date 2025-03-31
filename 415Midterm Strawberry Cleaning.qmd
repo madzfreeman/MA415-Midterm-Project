@@ -38,7 +38,6 @@ clean_data$watershed_code <- NULL
 clean_data$State.ANSI <- NULL
 
 print(names(clean_data))
-View(clean_data)
 
 ```
 
@@ -158,19 +157,15 @@ After cleaning the data set, the data was broken up into four data sets: Califor
 
 CA_survey <- clean_data[clean_data$State == "CALIFORNIA" & clean_data$Program == "SURVEY", ]
 print(paste("Number of CA survey rows:", nrow(CA_survey)))
-View(CA_survey)
 
 CA_census <- clean_data[clean_data$State == "CALIFORNIA" & clean_data$Program == "CENSUS", ]
 print(paste("Number of CA census rows:", nrow(CA_census)))
-View(CA_census)
 
 FL_survey <- clean_data[clean_data$State == "FLORIDA" & clean_data$Program == "SURVEY", ]
 print(paste("Number of FL survey rows:", nrow(FL_survey)))
-View(FL_survey)
 
 FL_census <- clean_data[clean_data$State == "FLORIDA" & clean_data$Program == "CENSUS", ]
 print(paste("Number of FL census rows:", nrow(FL_census)))
-View(FL_census)
 
 CA_survey$State <- CA_survey$Program <- NULL
 CA_census$State <- CA_census$Program <- NULL
@@ -178,12 +173,9 @@ FL_survey$State <- FL_survey$Program <- NULL
 FL_census$State <- FL_census$Program <- NULL
 
 strawberry_data <- clean_data[clean_data$Commodity == "STRAWBERRIES", ]
-View(strawberry_data)
 
 census_data <- clean_data[clean_data$Program == "CENSUS", ]
 survey_data <- clean_data[clean_data$Program == "SURVEY", ]
-View(census_data)
-View(survey_data)
 ```
 
 ## **Analyzing the Strawberry Data**
@@ -308,7 +300,7 @@ ggplot(usage_comparison, aes(x = Chemical, y = Difference, fill = Difference > 0
   theme_minimal() +
   theme(legend.position = "none")
 ```
-Here is my analysis of the different production types (organic and conventional). First I began by creating a table for production comparison, then sales comparison and then processing comparison. After this I created bar plots to exhibit the production comparison and processing comparison. I tried to make the bar graphs as clear as possible by including keys, labels and bright colors.
+Here is my analysis of the different production types (organic and conventional). First I began by creating a table for production comparison, then sales comparison and then processing comparison. 
 ```{r}
 #| echo: false
 #|label: Comparison of Production Types
@@ -316,8 +308,7 @@ Here is my analysis of the different production types (organic and conventional)
 library(dplyr)
 
 strawberry_data %>% 
-  count(`Production.Type`, Data.Item) %>% 
-  View()
+  count(`Production.Type`, Data.Item)
 
 strawberry_data %>%
   filter(grepl("PROD|ACRES|HARVEST", Data.Item, ignore.case = TRUE)) %>%
@@ -333,16 +324,6 @@ strawberry_data %>%
   filter(grepl("PROCESS", Data.Item, ignore.case = TRUE)) %>%
   group_by(`Production.Type`) %>%
   summarize(Processing = sum(Value.numeric, na.rm = TRUE))
-
-create_plot <- function(data, y_col, title) {
-  ggplot(data, aes(x = `Production.Type`, y = .data[[y_col]], fill = `Production.Type`)) +
-    geom_col() +
-    labs(title = title, x = "Production Type", y = y_col) +
-    scale_fill_manual(values = c("Conventional" = "orange", "Organic" = "pink")) +
-    theme_minimal()
-}
-create_plot(prod_summary, "Total_Production", "Total Production Comparison")
-create_plot(processing_summary, "Processing_Amount", "Processing Amount Comparison")
 ```
 
 For the second question of the assignment, I created visualizations that show price trends by production type and production volume trends by state and production type. In addition, I also created tables to show the direct comparisons of the state and production type data, something I was introduced to briefly in my past internship. The most difficult part of this project was modifying the code for the visualizations to make them look put together as well as figuring out which functions to choose to make the cleaned data set be used to its full potential.
@@ -384,7 +365,7 @@ ggplot(comparison_data, aes(x = Year, y = Avg_Price, color = State)) +
 ggplot(comparison_data, aes(x = Year, y = Total_Volume, 
                            color = interaction(State, Production.Type),
                            linetype = Production.Type)) +
-  geom_line(size = 1) +
+  geom_line(linewidth = 1) +
   geom_point(size = 3) +
   scale_color_manual(
     values = c("darkblue", "lightblue", "darkgreen", "lightgreen"),  
